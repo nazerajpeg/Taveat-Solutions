@@ -1,18 +1,11 @@
-// n8n Code node: "Find base and define tables" (Airtable setup)
-const BASE_NAME = 'GaaS Client Files';
-
-// n8n versions differ: some return { statusCode, body }, others return the body itself.
+// n8n Code node: "Plan changes" (Airtable setup)
+// Compares the base's real tables with what the agents write, and plans only the missing pieces.
+const base = $('Find base').first().json;
 const raw = $input.first().json;
 const body = raw && raw.body !== undefined ? raw.body : raw;
-if (!body || !Array.isArray(body.bases)) {
+if (!body || !Array.isArray(body.tables)) {
   const detail = body && body.error ? JSON.stringify(body.error) : JSON.stringify(raw).slice(0, 300);
-  throw new Error(`Airtable did not return a list of bases. Airtable said: ${detail}. Check that the Airtable credential's token has the schema.bases:read and schema.bases:write scopes and access to the "${BASE_NAME}" base.`);
-}
-const bases = body.bases;
-const base = bases.find((b) => b.name.trim().toLowerCase() === BASE_NAME.toLowerCase());
-if (!base) {
-  const seen = bases.map((b) => `"${b.name}"`).join(', ') || 'none';
-  throw new Error(`No base called "${BASE_NAME}" was found. Bases this token can see: ${seen}. Create the base (or rename it) and give the token access to it.`);
+  throw new Error(`Airtable did not return the tables in "${base.baseName}". Airtable said: ${detail}`);
 }
 
 const text = (name) => ({ name, type: 'singleLineText' });
@@ -23,7 +16,7 @@ const select = (name, choices) => ({ name, type: 'singleSelect', options: { choi
 const checkbox = (name) => ({ name, type: 'checkbox', options: { icon: 'check', color: 'greenBright' } });
 const currency = (name) => ({ name, type: 'currency', options: { precision: 0, symbol: '$' } });
 
-const tables = [
+const WANTED = [
   {
     name: 'Process Maps',
     description: 'I-2 Process Mapper output. One row per mapped process.',
@@ -78,4 +71,42 @@ const tables = [
   },
 ];
 
-return tables.map((table) => ({ json: { baseId: base.id, baseName: base.name, table } }));
+const TYPE_LABEL = {
+  singleLineText: 'Single line text', multilineText: 'Long text', number: 'Number', date: 'Date',
+  singleSelect: 'Single select', checkbox: 'Checkbox', currency: 'Currency',
+};
+const label = (t) => TYPE_LABEL[t] || t;
+// Types that still accept what the agents write, so a mismatch is cosmetic.
+const COMPATIBLE = { singleLineText: ['multilineText', 'singleSelect'], multilineText: ['singleLineText'], singleSelect: ['singleLineText'], number: ['currency'], currency: ['number'] };
+
+const prefix = `/v0/meta/bases/${base.baseId}/tables`;
+const actions = [];
+const warnings = [];
+
+for (const want of WANTED) {
+  const have = body.tables.find((t) => t.name.trim().toLowerCase() === want.name.toLowerCase());
+  if (!have) {
+    actions.push({ action: 'create table', table: want.name, url: prefix, body: want });
+    continue;
+  }
+  for (const f of want.fields) {
+    const exact = have.fields.find((x) => x.name === f.name);
+    if (exact) {
+      if (exact.type !== f.type) {
+        const fine = (COMPATIBLE[f.type] || []).includes(exact.type);
+        const msg = `${want.name}: column "${f.name}" is ${label(exact.type)} but should be ${label(f.type)}. In Airtable: click the column name → Edit field → change the type.`;
+        if (!fine) warnings.push(msg);
+      }
+      continue;
+    }
+    const near = have.fields.find((x) => x.name.trim().toLowerCase() === f.name.toLowerCase());
+    if (near) {
+      warnings.push(`${want.name}: column "${near.name}" must be named exactly "${f.name}". Rename it in Airtable.`);
+      continue;
+    }
+    actions.push({ action: 'add column', table: want.name, field: f.name, url: `${prefix}/${have.id}/fields`, body: f });
+  }
+}
+
+if (!actions.length) return [{ json: { action: 'none', baseName: base.baseName, warnings } }];
+return actions.map((a) => ({ json: { ...a, baseName: base.baseName, warnings } }));

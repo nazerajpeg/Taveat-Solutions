@@ -24,7 +24,7 @@ Cost per run: about $0.05–$0.15 in Claude usage. Each run records its actual c
 2. Create a token at airtable.com/create/tokens with these four scopes: `data.records:read`, `data.records:write`, `schema.bases:read`, `schema.bases:write`. Under Access, add the GaaS Client Files base. Copy the token.
 3. In n8n, import `airtable-setup.json` (Import from URL or Import from File).
 4. Open **List my bases** → Credential → create a new **Airtable Personal Access Token** credential, paste the token and save it as "Airtable". Select the same credential on **Create table**.
-5. Click **Execute workflow**. Then open **Summary**: both tables should say "Created with … fields". Running it again is safe, because existing tables are left unchanged.
+5. Click **Execute workflow**. Then open **Summary**: both tables should say "Created with … fields". Running it again is safe: it only adds tables or columns that are missing, and lists any column that is misnamed or the wrong type.
 6. In Airtable, delete the empty default table ("Table 1") if there is one.
 
 This creates both the **Process Maps** table below and the **Backlog** table used by the Opportunity Scorer.
