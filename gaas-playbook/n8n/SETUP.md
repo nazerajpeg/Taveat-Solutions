@@ -17,9 +17,19 @@ Cost per run: about $0.05–$0.15 in Claude usage. Each run records its actual c
 2. Add billing credit. $20 covers hundreds of runs.
 3. Copy the key. You'll paste it into n8n in step 3. Don't save it anywhere else.
 
-## 2. Create the Airtable table (10 min)
+## 2. Create the Airtable tables (5 min)
 
-Create a base called **GaaS Client Files** with a table called **Process Maps**. The field names must match exactly, including capitals and brackets:
+**Quickest way: let n8n create them.**
+1. In Airtable, create an empty base called exactly **GaaS Client Files**.
+2. Create a token at airtable.com/create/tokens with these four scopes: `data.records:read`, `data.records:write`, `schema.bases:read`, `schema.bases:write`. Under Access, add the GaaS Client Files base. Copy the token.
+3. In n8n, import `airtable-setup.json` (Import from URL or Import from File).
+4. Open **List my bases** → Credential → create a new **Airtable Personal Access Token** credential, paste the token and save it as "Airtable". Select the same credential on **Create table**.
+5. Click **Execute workflow**. Then open **Summary**: both tables should say "Created with … fields". Running it again is safe, because existing tables are left unchanged.
+6. In Airtable, delete the empty default table ("Table 1") if there is one.
+
+This creates both the **Process Maps** table below and the **Backlog** table used by the Opportunity Scorer.
+
+**Or create the table by hand.** Create a base called **GaaS Client Files** with a table called **Process Maps**. The field names must match exactly, including capitals and brackets:
 
 | Field name | Airtable field type |
 |---|---|
@@ -43,7 +53,7 @@ Create a base called **GaaS Client Files** with a table called **Process Maps**.
 | Model | Single line text |
 | AI cost (USD) | Number (4 decimals) |
 
-Then create an Airtable token: airtable.com/create/tokens → scopes `data.records:write` and `schema.bases:read` → access: the GaaS Client Files base.
+Then create an Airtable token as in step 2 above. The same token works for every workflow.
 
 ## 3. Import into n8n (10 min)
 

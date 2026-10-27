@@ -1,0 +1,166 @@
+{
+  "name": "Setup: create Airtable tables",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Run setup",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "t2",
+      "name": "List my bases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/meta/bases",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "t3",
+      "name": "Find base and define tables",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Find base and define tables\" (Airtable setup)\nconst BASE_NAME = 'GaaS Client Files';\n\nconst res = $input.first().json;\nif (res.statusCode !== 200) {\n  const msg = res.body && res.body.error ? JSON.stringify(res.body.error) : `HTTP ${res.statusCode}`;\n  throw new Error(`Airtable refused the request (${msg}). Check that the Airtable credential's token has the schema.bases:read and schema.bases:write scopes and access to the \"${BASE_NAME}\" base.`);\n}\nconst bases = (res.body && res.body.bases) || [];\nconst base = bases.find((b) => b.name.trim().toLowerCase() === BASE_NAME.toLowerCase());\nif (!base) {\n  const seen = bases.map((b) => `\"${b.name}\"`).join(', ') || 'none';\n  throw new Error(`No base called \"${BASE_NAME}\" was found. Bases this token can see: ${seen}. Create the base (or rename it) and give the token access to it.`);\n}\n\nconst text = (name) => ({ name, type: 'singleLineText' });\nconst long = (name) => ({ name, type: 'multilineText' });\nconst num = (name, precision) => ({ name, type: 'number', options: { precision } });\nconst date = (name) => ({ name, type: 'date', options: { dateFormat: { name: 'iso' } } });\nconst select = (name, choices) => ({ name, type: 'singleSelect', options: { choices: choices.map((c) => ({ name: c })) } });\nconst checkbox = (name) => ({ name, type: 'checkbox', options: { icon: 'check', color: 'greenBright' } });\nconst currency = (name) => ({ name, type: 'currency', options: { precision: 0, symbol: '$' } });\n\nconst tables = [\n  {\n    name: 'Process Maps',\n    description: 'I-2 Process Mapper output. One row per mapped process.',\n    fields: [\n      text('Client'),\n      text('Process'),\n      text('Interviewee'),\n      date('Interview date'),\n      text('Owner'),\n      num('Runs per week', 1),\n      num('Minutes per run', 1),\n      num('Hours per week', 1),\n      num('Step count', 0),\n      num('Judgment steps', 0),\n      num('Exception count', 0),\n      checkbox('Checklist passed'),\n      long('Checklist issues'),\n      long('Open questions'),\n      long('Map'),\n      long('Map JSON'),\n      select('Status', ['Awaiting confirmation', 'Confirmed', 'Needs rework']),\n      text('Model'),\n      num('AI cost (USD)', 4),\n    ],\n  },\n  {\n    name: 'Backlog',\n    description: 'A-1 Opportunity Scorer output. One row per scored process.',\n    fields: [\n      text('Process'),\n      text('Client'),\n      num('Rank', 0),\n      select('Priority', ['Build now', 'Build next', \"Don't automate yet\", 'Needs data']),\n      num('Score', 2),\n      num('Volume', 0),\n      num('Rule clarity', 0),\n      num('Data access', 0),\n      num('Risk if wrong', 0),\n      num('Strategic value', 0),\n      long('Reasons'),\n      num('Hours per week', 1),\n      num('Automatable %', 0),\n      num('Hours saved per week', 1),\n      currency('Saving per week (USD)'),\n      long('Automation idea'),\n      long('Main risks'),\n      select('Status', ['Proposed', 'Approved', 'Rejected', 'Built']),\n      date('Scored on'),\n      text('Model'),\n      num('Run AI cost (USD)', 4),\n    ],\n  },\n];\n\nreturn tables.map((table) => ({ json: { baseId: base.id, baseName: base.name, table } }));\n"
+      }
+    },
+    {
+      "id": "t4",
+      "name": "Create table",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/meta/bases/' + $json.baseId + '/tables' }}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.table) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 500
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "t5",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Summary\" (Airtable setup)\nconst defs = $('Find base and define tables').all().map((i) => i.json);\nconst results = $input.all().map((item, i) => {\n  const r = item.json;\n  const table = defs[i].table;\n  const err = r.body && r.body.error;\n  if (r.statusCode === 200) return { table: table.name, result: `Created with ${table.fields.length} fields` };\n  if (err && /DUPLICATE_TABLE_NAME/i.test(JSON.stringify(err))) return { table: table.name, result: 'Already exists, left unchanged' };\n  return { table: table.name, result: `Failed: ${err ? JSON.stringify(err) : 'HTTP ' + r.statusCode}` };\n});\nconst ok = results.every((r) => !r.result.startsWith('Failed'));\nreturn [{\n  json: {\n    base: defs[0].baseName,\n    allOk: ok,\n    results,\n    nextStep: ok\n      ? 'Done. Open the base in Airtable and delete the empty \"Table 1\" if it is there.'\n      : 'Send the Failed message above to Claude to get the fix.',\n  },\n}];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Run setup": {
+      "main": [
+        [
+          {
+            "node": "List my bases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List my bases": {
+      "main": [
+        [
+          {
+            "node": "Find base and define tables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find base and define tables": {
+      "main": [
+        [
+          {
+            "node": "Create table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create table": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
