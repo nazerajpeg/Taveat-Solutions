@@ -1,0 +1,27 @@
+Consultant: Can you walk me through how you handle overdue invoices, from the start?
+
+Dana: Sure. So every weekday morning, usually first thing around nine, I open QuickBooks and run the "Open Invoices" report, filtered to anything more than 30 days past due. Most days there's somewhere between eight and fifteen on there.
+
+Consultant: Then what?
+
+Dana: I export it to Excel, because I like to add a notes column. Then I go down the list one by one. For each one I check our shared Gmail inbox to see if the customer already replied about it, because sometimes they've said "paying Friday" and nobody marked it.
+
+Consultant: And if they haven't replied?
+
+Dana: Then I write them a reminder email from the shared inbox. I have a template saved in a Google Doc that I copy from, but I change it depending on who it is. Long-time customers, the ones we've had for years, I keep it really friendly. If it's someone who's late every single month, I'm a bit firmer and I mention the late fee.
+
+Consultant: How do you decide who's who?
+
+Dana: Honestly, it's mostly memory. I just know. Mike, the owner, has asked me to write it down but I haven't.
+
+Consultant: What happens after you send the email?
+
+Dana: I put the date I emailed them in my notes column in the Excel file. If it's more than 60 days overdue, I also call them, from my desk phone, and I write down what they said.
+
+Consultant: Any situations where it goes differently?
+
+Dana: Yeah, if a customer says the invoice is wrong, like they're disputing the amount, I stop chasing and forward the whole email thread to Mike. He deals with those. And sometimes the email bounces because the contact left the company, then I have to call the main line and find out who handles accounts now, and update their contact in QuickBooks.
+
+Consultant: How long does all of this take you?
+
+Dana: Probably about 45 minutes a day, more on Mondays because of the weekend backlog. It's the most boring part of my job, and if I'm off sick nobody does it, so it piles up.
