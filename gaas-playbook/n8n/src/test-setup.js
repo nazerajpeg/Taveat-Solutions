@@ -39,6 +39,13 @@ const backlogRow = (() => {
 assert.deepEqual([...fieldNames('Backlog')].sort(), Object.keys(backlogRow).sort());
 console.log('fields match agents: ok');
 
+// 2b. Raw-body response shape (some n8n versions) works too
+assert.equal(run('setup-tables.js', [bases.body])[0].baseId, 'appGaaS');
+const rawSummary = run('setup-summary.js', [{ id: 'tbl1', name: 'Process Maps' }, { error: { message: '422 - {"error":{"type":"DUPLICATE_TABLE_NAME"}}' } }], { 'Find base and define tables': defs })[0];
+assert.deepEqual(rawSummary.results.map((r) => r.result), ['Created with 19 fields', 'Already exists, left unchanged']);
+assert.throws(() => run('setup-tables.js', [{ error: { message: '401 - AUTHENTICATION_REQUIRED' } }]), /AUTHENTICATION_REQUIRED/);
+console.log('raw response shape: ok');
+
 // 3. Scorer filters on Client and Status in Process Maps
 assert.ok(fieldNames('Process Maps').includes('Client') && fieldNames('Process Maps').includes('Status'));
 

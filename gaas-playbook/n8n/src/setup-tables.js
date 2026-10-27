@@ -1,12 +1,14 @@
 // n8n Code node: "Find base and define tables" (Airtable setup)
 const BASE_NAME = 'GaaS Client Files';
 
-const res = $input.first().json;
-if (res.statusCode !== 200) {
-  const msg = res.body && res.body.error ? JSON.stringify(res.body.error) : `HTTP ${res.statusCode}`;
-  throw new Error(`Airtable refused the request (${msg}). Check that the Airtable credential's token has the schema.bases:read and schema.bases:write scopes and access to the "${BASE_NAME}" base.`);
+// n8n versions differ: some return { statusCode, body }, others return the body itself.
+const raw = $input.first().json;
+const body = raw && raw.body !== undefined ? raw.body : raw;
+if (!body || !Array.isArray(body.bases)) {
+  const detail = body && body.error ? JSON.stringify(body.error) : JSON.stringify(raw).slice(0, 300);
+  throw new Error(`Airtable did not return a list of bases. Airtable said: ${detail}. Check that the Airtable credential's token has the schema.bases:read and schema.bases:write scopes and access to the "${BASE_NAME}" base.`);
 }
-const bases = (res.body && res.body.bases) || [];
+const bases = body.bases;
 const base = bases.find((b) => b.name.trim().toLowerCase() === BASE_NAME.toLowerCase());
 if (!base) {
   const seen = bases.map((b) => `"${b.name}"`).join(', ') || 'none';

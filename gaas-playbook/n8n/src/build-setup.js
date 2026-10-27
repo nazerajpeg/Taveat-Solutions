@@ -15,7 +15,7 @@ const fullResponse = { response: { response: { fullResponse: true, neverError: t
 const nodes = [
   { id: 't1', name: 'Run setup', type: 'n8n-nodes-base.manualTrigger', typeVersion: 1, position: [0, 300], parameters: {} },
   {
-    id: 't2', name: 'List my bases', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [240, 300], credentials,
+    id: 't2', name: 'List my bases', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [240, 300], credentials, onError: 'continueRegularOutput',
     parameters: { method: 'GET', url: `${AIRTABLE}/v0/meta/bases`, ...airtableAuth, options: fullResponse },
   },
   {
@@ -23,7 +23,7 @@ const nodes = [
     parameters: { jsCode: code('setup-tables.js') },
   },
   {
-    id: 't4', name: 'Create table', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [720, 300], credentials,
+    id: 't4', name: 'Create table', type: 'n8n-nodes-base.httpRequest', typeVersion: 4.2, position: [720, 300], credentials, onError: 'continueRegularOutput',
     parameters: {
       method: 'POST',
       url: `={{ '${AIRTABLE}/v0/meta/bases/' + $json.baseId + '/tables' }}`,
