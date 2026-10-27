@@ -10,12 +10,14 @@ The method, tool rules and agents Taveat Solutions uses to deliver AI implementa
 | `n8n/process-mapper.json` | Agent I-2 Process Mapper: import into n8n |
 | `n8n/SETUP.md` | How to set up the Process Mapper |
 | `n8n/sample-transcript.txt` | Sample walkthrough transcript for testing |
-| `n8n/src/` | Source for the workflow's code steps, the build script and tests |
+| `n8n/opportunity-scorer.json` | Agent A-1 Opportunity Scorer: import into n8n |
+| `n8n/OPPORTUNITY_SCORER_SETUP.md` | How to set up the Opportunity Scorer |
+| `n8n/src/` | Source for the workflows' code steps, build scripts and tests |
 
-Rebuild the workflow after editing a code step:
+Rebuild a workflow after editing one of its code steps:
 
 ```bash
 cd gaas-playbook/n8n/src
-node test-code-nodes.js
-node build-workflow.js ../process-mapper.json
+node test-code-nodes.js && node build-workflow.js ../process-mapper.json   # Process Mapper
+node test-scorer.js && node build-scorer.js                               # Opportunity Scorer
 ```

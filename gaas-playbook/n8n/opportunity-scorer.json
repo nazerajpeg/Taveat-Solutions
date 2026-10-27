@@ -1,0 +1,407 @@
+{
+  "name": "A-1 Opportunity Scorer",
+  "nodes": [
+    {
+      "id": "s1",
+      "name": "Scoring form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "c3a2d5e8-7b1f-4c6a-9e2d-5f8a1b3c7d02",
+      "parameters": {
+        "formTitle": "Score automation opportunities",
+        "formDescription": "Scores every confirmed process map for a client against the playbook rubric and builds a ranked backlog.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Client name",
+              "placeholder": "Exactly as written in the Process Maps table",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Owner's top pains",
+              "fieldType": "textarea",
+              "placeholder": "The owner's top 3 frustrations, from the intake questionnaire"
+            },
+            {
+              "fieldLabel": "Loaded hourly cost (USD)",
+              "fieldType": "number",
+              "placeholder": "e.g. 40"
+            }
+          ]
+        },
+        "options": {
+          "path": "opportunity-scorer",
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "s2",
+      "name": "Get confirmed maps",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        240,
+        300
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_ME"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Process Maps"
+        },
+        "filterByFormula": "={{ \"AND({Client} = '\" + $json['Client name'].trim().replace(/'/g, \"\\\\'\") + \"', {Status} = 'Confirmed')\" }}",
+        "returnAll": true,
+        "options": {}
+      }
+    },
+    {
+      "id": "s3",
+      "name": "Build Claude request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Build Claude request\" (A-1 Opportunity Scorer)\nconst form = $('Scoring form').first().json;\nconst client = (form['Client name'] || '').trim();\nconst ownerPains = (form[\"Owner's top pains\"] || '').trim();\nconst hourlyCost = Number(form['Loaded hourly cost (USD)']) || null;\n\nconst processes = $input\n  .all()\n  .map((item) => item.json)\n  .filter((j) => j && j.id)\n  .map((record, i) => {\n    const f = record.fields || record;\n    let map = null;\n    try {\n      map = JSON.parse(f['Map JSON'] || '');\n    } catch (e) {}\n    return {\n      process_id: `P${i + 1}`,\n      record_id: record.id,\n      process: f['Process'],\n      hours_per_week: typeof f['Hours per week'] === 'number' ? f['Hours per week'] : null,\n      map,\n    };\n  })\n  .filter((p) => p.map);\n\nif (!processes.length) {\n  return [{ json: { Error: `No confirmed process maps found for \"${client}\". In the Process Maps table, check that the client name matches exactly and that approved maps have Status set to Confirmed.` } }];\n}\n\nconst system = `You are the Opportunity Scorer for an AI implementation consultancy. You rate a client's business processes so the consultancy can decide which ones to automate first. The client pays for this judgment, so be consistent, specific and honest. A process that should not be automated yet must score low.\n\nRate each process from 1 to 5 on four criteria, using this rubric exactly. Use 2 and 4 for cases between the anchors.\n\nRULE CLARITY: could the rules for this process be written down?\n1 = mostly judgment (decisions depend on experience or relationships)\n3 = rules plus some judgment\n5 = clear rules that anyone could follow\n\nDATA ACCESS: can an automation reach the inputs and outputs?\n1 = paper, phone calls or a locked system with no export\n3 = exports, email or manual copy and paste\n5 = the tools have an API or a native integration with n8n, Make or Zapier\nJudge from the tools named in the map. If a tool is \"unknown\", rate no higher than 3.\n\nRISK IF WRONG (reversed: low risk scores high)\n1 = errors cause money loss, legal exposure or harm to customers\n3 = errors cause internal rework\n5 = errors are easily caught and undone\n\nSTRATEGIC VALUE: does the business owner care about this?\n1 = nice to have\n3 = useful\n5 = one of the owner's top 3 pains\nUse the owner's stated pains when given. Otherwise judge from the pain points in the map and say in the reason that the owner's priorities were not provided.\n\nAlso estimate automatable_percent: the share of the process's time that automation could remove, keeping a person on judgment steps and on anything customer-facing or money-related (those need human approval). Count only realistic savings.\n\nEach reason is one sentence that cites something specific from the map. automation_idea is one or two sentences in plain English describing what would be automated and where a person stays involved. main_risks names the most important thing that could go wrong.\n\nDo not rate volume or calculate scores. That is done separately.`;\n\nconst intRating = { type: 'integer', enum: [1, 2, 3, 4, 5] };\nconst rated = {\n  type: 'object',\n  additionalProperties: false,\n  required: ['rating', 'reason'],\n  properties: { rating: intRating, reason: { type: 'string' } },\n};\nconst schema = {\n  type: 'object',\n  additionalProperties: false,\n  required: ['scores'],\n  properties: {\n    scores: {\n      type: 'array',\n      items: {\n        type: 'object',\n        additionalProperties: false,\n        required: ['process_id', 'rule_clarity', 'data_access', 'risk_if_wrong', 'strategic_value', 'automatable_percent', 'automation_idea', 'main_risks'],\n        properties: {\n          process_id: { type: 'string', enum: processes.map((p) => p.process_id) },\n          rule_clarity: rated,\n          data_access: rated,\n          risk_if_wrong: rated,\n          strategic_value: rated,\n          automatable_percent: { type: 'integer', enum: [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100] },\n          automation_idea: { type: 'string' },\n          main_risks: { type: 'string' },\n        },\n      },\n    },\n  },\n};\n\nconst processBlocks = processes\n  .map((p) => `<process id=\"${p.process_id}\">\\n${JSON.stringify(p.map, null, 2)}\\n</process>`)\n  .join('\\n\\n');\n\nconst userMessage = `<client>${client}</client>\n\n<owner_top_pains>\n${ownerPains || 'Not provided.'}\n</owner_top_pains>\n\n${processBlocks}\n\nScore every process above. Return exactly one entry per process id: ${processes.map((p) => p.process_id).join(', ')}.`;\n\nconst request = {\n  model: 'claude-opus-5-5',\n  max_tokens: 32000,\n  fallbacks: 'default',\n  output_config: { effort: 'high', format: { type: 'json_schema', schema } },\n  system,\n  messages: [{ role: 'user', content: userMessage }],\n};\n\nreturn [{\n  json: {\n    request,\n    meta: {\n      client,\n      hourlyCost,\n      ownerPainsGiven: Boolean(ownerPains),\n      processes: processes.map(({ map, ...rest }) => rest),\n    },\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "s4",
+      "name": "Maps found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "maps-found",
+              "leftValue": "={{ $json.Error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s5",
+      "name": "Claude: score processes",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Anthropic API key"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2026-10-21"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "server-side-fallback-2026-07-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 600000
+        }
+      }
+    },
+    {
+      "id": "s6",
+      "name": "Score and rank",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        160
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Score and rank\" (A-1 Opportunity Scorer)\nconst res = $input.first().json;\nconst meta = $('Build Claude request').first().json.meta;\n\nconst PRICE_PER_MTOK = { input: 4.0, output: 20.0 }; // Claude Opus 5.5, USD\nconst WEIGHTS = { volume: 0.3, rule_clarity: 0.25, data_access: 0.2, risk_if_wrong: 0.15, strategic_value: 0.1 };\n\nconst fail = (msg) => [{ json: { Error: msg } }];\n\nif (res.stop_reason === 'refusal') return fail('Claude declined to score these processes. Check the process maps for content unrelated to the business and try again.');\nif (res.stop_reason === 'max_tokens') return fail('The scoring was cut off because there were too many processes. Score them in smaller groups.');\nconst textBlock = (res.content || []).find((b) => b.type === 'text');\nif (!textBlock) return fail(`Claude returned no scores (stop reason: ${res.stop_reason || 'unknown'}).`);\nlet out;\ntry {\n  out = JSON.parse(textBlock.text);\n} catch (e) {\n  return fail('Claude returned scores that could not be read. Submit the form again.');\n}\n\nconst byId = {};\nfor (const s of out.scores || []) byId[s.process_id] = s;\nconst missing = meta.processes.filter((p) => !byId[p.process_id]).map((p) => p.process);\nif (missing.length) return fail(`Claude did not score: ${missing.join(', ')}. Submit the form again.`);\n\n// Volume comes from measured hours, not from the model (PLAYBOOK A-1 rubric).\nconst volumeRating = (h) => {\n  if (h == null) return null;\n  if (h < 1) return 1;\n  if (h < 3) return 2;\n  if (h <= 5) return 3;\n  if (h <= 10) return 4;\n  return 5;\n};\nconst round = (n, dp) => Math.round(n * 10 ** dp) / 10 ** dp;\nconst band = (score) => (score == null ? 'Needs data' : score >= 4 ? 'Build now' : score >= 3 ? 'Build next' : \"Don't automate yet\");\n\nconst usage = res.usage || {};\nconst cost = round(((usage.input_tokens || 0) * PRICE_PER_MTOK.input + (usage.output_tokens || 0) * PRICE_PER_MTOK.output) / 1e6, 4);\nconst today = new Date().toISOString().slice(0, 10);\n\nconst rows = meta.processes.map((p) => {\n  const s = byId[p.process_id];\n  const volume = volumeRating(p.hours_per_week);\n  const score =\n    volume == null\n      ? null\n      : round(\n          volume * WEIGHTS.volume +\n            s.rule_clarity.rating * WEIGHTS.rule_clarity +\n            s.data_access.rating * WEIGHTS.data_access +\n            s.risk_if_wrong.rating * WEIGHTS.risk_if_wrong +\n            s.strategic_value.rating * WEIGHTS.strategic_value,\n          2,\n        );\n  const hoursSaved = p.hours_per_week == null ? null : round((p.hours_per_week * s.automatable_percent) / 100, 1);\n  const saving = hoursSaved != null && meta.hourlyCost ? Math.round(hoursSaved * meta.hourlyCost) : null;\n  const volumeReason =\n    volume == null ? 'Hours per week unknown. Fill in the process map before this can be scored.' : `${p.hours_per_week} hours per week.`;\n  return {\n    'Client': meta.client,\n    'Process': p.process,\n    'Priority': band(score),\n    'Score': score,\n    'Volume': volume,\n    'Rule clarity': s.rule_clarity.rating,\n    'Data access': s.data_access.rating,\n    'Risk if wrong': s.risk_if_wrong.rating,\n    'Strategic value': s.strategic_value.rating,\n    'Reasons': [\n      `Volume: ${volumeReason}`,\n      `Rule clarity: ${s.rule_clarity.reason}`,\n      `Data access: ${s.data_access.reason}`,\n      `Risk if wrong: ${s.risk_if_wrong.reason}`,\n      `Strategic value: ${s.strategic_value.reason}`,\n    ].join('\\n'),\n    'Hours per week': p.hours_per_week,\n    'Automatable %': s.automatable_percent,\n    'Hours saved per week': hoursSaved,\n    'Saving per week (USD)': saving,\n    'Automation idea': s.automation_idea,\n    'Main risks': s.main_risks,\n    'Status': 'Proposed',\n    'Scored on': today,\n    'Model': res.model || 'claude-opus-5-5',\n    'Run AI cost (USD)': cost,\n  };\n});\n\nrows.sort((a, b) => (b.Score ?? -1) - (a.Score ?? -1));\nrows.forEach((r, i) => (r['Rank'] = i + 1));\n\nreturn rows.map((r) => ({ json: r }));\n"
+      }
+    },
+    {
+      "id": "s7",
+      "name": "Scored OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1440,
+        160
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "scored-ok",
+              "leftValue": "={{ $json.Error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "s8",
+      "name": "Save to backlog",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1680,
+        80
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_ME"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Backlog"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "typecast": true
+        }
+      }
+    },
+    {
+      "id": "s9",
+      "name": "Show result",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        80
+      ],
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "Backlog ready",
+        "completionMessage": "={{ (() => {\n  const rows = $('Score and rank').all().map((i) => i.json);\n  const list = (p) => rows.filter((r) => r.Priority === p).map((r) => r.Process + (r.Score != null ? ' (' + r.Score + ')' : '')).join(', ') || 'none';\n  const hours = rows.filter((r) => r.Priority === 'Build now').reduce((t, r) => t + (r['Hours saved per week'] || 0), 0);\n  const needsData = rows.some((r) => r.Priority === 'Needs data') ? ' Needs data first: ' + list('Needs data') + '.' : '';\n  return 'Scored ' + rows.length + ' processes and saved them to the Backlog table as Proposed. Build now: ' + list('Build now') + '. Build next: ' + list('Build next') + \". Don't automate yet: \" + list(\"Don't automate yet\") + '.' + needsData + ' Automating the Build now items would save about ' + Math.round(hours * 10) / 10 + ' hours per week.';\n})() }}"
+      }
+    },
+    {
+      "id": "s10",
+      "name": "Show error",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        420
+      ],
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "The backlog was not created",
+        "completionMessage": "={{ $json.Error || ($json.error && ($json.error.message || JSON.stringify($json.error))) || 'Unknown error. Check the workflow executions in n8n.' }}"
+      }
+    }
+  ],
+  "connections": {
+    "Scoring form": {
+      "main": [
+        [
+          {
+            "node": "Get confirmed maps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get confirmed maps": {
+      "main": [
+        [
+          {
+            "node": "Build Claude request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude request": {
+      "main": [
+        [
+          {
+            "node": "Maps found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Maps found?": {
+      "main": [
+        [
+          {
+            "node": "Claude: score processes",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: score processes": {
+      "main": [
+        [
+          {
+            "node": "Score and rank",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score and rank": {
+      "main": [
+        [
+          {
+            "node": "Scored OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Scored OK?": {
+      "main": [
+        [
+          {
+            "node": "Save to backlog",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to backlog": {
+      "main": [
+        [
+          {
+            "node": "Show result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
