@@ -48,7 +48,7 @@ const response = {
 const row = run('parse-and-check.js', response, { 'Build Claude request': built })[0].json;
 assert.equal(row['Hours per week'], 3.8);
 assert.equal(row['Checklist passed'], false);
-assert.ok(row['Checklist issues'].includes('Steps 2 have no tool'));
+assert.ok(row['Checklist issues'].includes('Step 2 has no tool'));
 assert.ok(row['Checklist issues'].includes('No exceptions'));
 assert.equal(row['AI cost (USD)'], 0.08);
 assert.equal(row['Judgment steps'], 1);
