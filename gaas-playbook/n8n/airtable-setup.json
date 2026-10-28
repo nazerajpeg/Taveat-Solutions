@@ -1,0 +1,285 @@
+{
+  "name": "Setup: create Airtable tables",
+  "nodes": [
+    {
+      "id": "t1",
+      "name": "Run setup",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "t2",
+      "name": "List my bases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/meta/bases",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "t3",
+      "name": "Find base",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Find base\" (Airtable setup)\nconst BASE_NAME = 'GaaS Client Files';\n\n// n8n versions differ: some return { statusCode, body }, others return the body itself.\nconst raw = $input.first().json;\nconst body = raw && raw.body !== undefined ? raw.body : raw;\nif (!body || !Array.isArray(body.bases)) {\n  const detail = body && body.error ? JSON.stringify(body.error) : JSON.stringify(raw).slice(0, 300);\n  throw new Error(`Airtable did not return a list of bases. Airtable said: ${detail}. Check that the Airtable credential's token has the schema.bases:read and schema.bases:write scopes and access to the \"${BASE_NAME}\" base.`);\n}\nconst matches = body.bases.filter((b) => b.name.trim().toLowerCase() === BASE_NAME.toLowerCase());\nif (!matches.length) {\n  const seen = body.bases.map((b) => `\"${b.name}\"`).join(', ') || 'none';\n  throw new Error(`No base called \"${BASE_NAME}\" was found. Bases this token can see: ${seen}. Create the base (or rename it) and give the token access to it.`);\n}\nif (matches.length > 1) {\n  throw new Error(`Found ${matches.length} bases called \"${BASE_NAME}\" (IDs: ${matches.map((b) => b.id).join(', ')}). Keep one: delete or rename the others in Airtable, then run this again. A base's ID is the part of its web address that starts with \"app\".`);\n}\nreturn [{ json: { baseId: matches[0].id, baseName: matches[0].name } }];\n"
+      }
+    },
+    {
+      "id": "t4",
+      "name": "Read current tables",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "method": "GET",
+        "url": "={{ 'https://api.airtable.com/v0/meta/bases/' + $json.baseId + '/tables' }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "t5",
+      "name": "Plan changes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Plan changes\" (Airtable setup)\n// Compares the base's real tables with what the agents write, and plans only the missing pieces.\nconst base = $('Find base').first().json;\nconst raw = $input.first().json;\nconst body = raw && raw.body !== undefined ? raw.body : raw;\nif (!body || !Array.isArray(body.tables)) {\n  const detail = body && body.error ? JSON.stringify(body.error) : JSON.stringify(raw).slice(0, 300);\n  throw new Error(`Airtable did not return the tables in \"${base.baseName}\". Airtable said: ${detail}`);\n}\n\nconst text = (name) => ({ name, type: 'singleLineText' });\nconst long = (name) => ({ name, type: 'multilineText' });\nconst num = (name, precision) => ({ name, type: 'number', options: { precision } });\nconst date = (name) => ({ name, type: 'date', options: { dateFormat: { name: 'iso' } } });\nconst select = (name, choices) => ({ name, type: 'singleSelect', options: { choices: choices.map((c) => ({ name: c })) } });\nconst checkbox = (name) => ({ name, type: 'checkbox', options: { icon: 'check', color: 'greenBright' } });\nconst currency = (name) => ({ name, type: 'currency', options: { precision: 0, symbol: '$' } });\n\nconst WANTED = [\n  {\n    name: 'Process Maps',\n    description: 'I-2 Process Mapper output. One row per mapped process.',\n    fields: [\n      text('Client'),\n      text('Process'),\n      text('Interviewee'),\n      date('Interview date'),\n      text('Owner'),\n      num('Runs per week', 1),\n      num('Minutes per run', 1),\n      num('Hours per week', 1),\n      num('Step count', 0),\n      num('Judgment steps', 0),\n      num('Exception count', 0),\n      checkbox('Checklist passed'),\n      long('Checklist issues'),\n      long('Open questions'),\n      long('Map'),\n      long('Map JSON'),\n      select('Status', ['Awaiting confirmation', 'Confirmed', 'Needs rework']),\n      text('Model'),\n      num('AI cost (USD)', 4),\n    ],\n  },\n  {\n    name: 'Backlog',\n    description: 'A-1 Opportunity Scorer output. One row per scored process.',\n    fields: [\n      text('Process'),\n      text('Client'),\n      num('Rank', 0),\n      select('Priority', ['Build now', 'Build next', \"Don't automate yet\", 'Needs data']),\n      num('Score', 2),\n      num('Volume', 0),\n      num('Rule clarity', 0),\n      num('Data access', 0),\n      num('Risk if wrong', 0),\n      num('Strategic value', 0),\n      long('Reasons'),\n      num('Hours per week', 1),\n      num('Automatable %', 0),\n      num('Hours saved per week', 1),\n      currency('Saving per week (USD)'),\n      long('Automation idea'),\n      long('Main risks'),\n      select('Status', ['Proposed', 'Approved', 'Rejected', 'Built']),\n      date('Scored on'),\n      text('Model'),\n      num('Run AI cost (USD)', 4),\n    ],\n  },\n];\n\nconst TYPE_LABEL = {\n  singleLineText: 'Single line text', multilineText: 'Long text', number: 'Number', date: 'Date',\n  singleSelect: 'Single select', checkbox: 'Checkbox', currency: 'Currency',\n};\nconst label = (t) => TYPE_LABEL[t] || t;\n// Types that still accept what the agents write, so a mismatch is cosmetic.\nconst COMPATIBLE = { singleLineText: ['multilineText', 'singleSelect'], multilineText: ['singleLineText'], singleSelect: ['singleLineText'], number: ['currency'], currency: ['number'] };\n\nconst prefix = `/v0/meta/bases/${base.baseId}/tables`;\nconst actions = [];\nconst warnings = [];\n\nfor (const want of WANTED) {\n  const have = body.tables.find((t) => t.name.trim().toLowerCase() === want.name.toLowerCase());\n  if (!have) {\n    actions.push({ action: 'create table', table: want.name, url: prefix, body: want });\n    continue;\n  }\n  for (const f of want.fields) {\n    const exact = have.fields.find((x) => x.name === f.name);\n    if (exact) {\n      if (exact.type !== f.type) {\n        const fine = (COMPATIBLE[f.type] || []).includes(exact.type);\n        const msg = `${want.name}: column \"${f.name}\" is ${label(exact.type)} but should be ${label(f.type)}. In Airtable: click the column name → Edit field → change the type.`;\n        if (!fine) warnings.push(msg);\n      }\n      continue;\n    }\n    const near = have.fields.find((x) => x.name.trim().toLowerCase() === f.name.toLowerCase());\n    if (near) {\n      warnings.push(`${want.name}: column \"${near.name}\" must be named exactly \"${f.name}\". Rename it in Airtable.`);\n      continue;\n    }\n    actions.push({ action: 'add column', table: want.name, field: f.name, url: `${prefix}/${have.id}/fields`, body: f });\n  }\n}\n\nif (!actions.length) return [{ json: { action: 'none', baseName: base.baseName, warnings } }];\nreturn actions.map((a) => ({ json: { ...a, baseName: base.baseName, warnings } }));\n"
+      }
+    },
+    {
+      "id": "t6",
+      "name": "Anything to change?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "has-change",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "none",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "t7",
+      "name": "Apply change",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        200
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com' + $json.url }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 1,
+              "batchInterval": 300
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "t8",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Summary\" (Airtable setup)\nconst plan = $('Plan changes').all().map((i) => i.json);\nconst warnings = plan[0].warnings || [];\nlet results;\n\nif (plan[0].action === 'none') {\n  results = ['Nothing to change: both tables already have every column the agents need.'];\n} else {\n  results = $input.all().map((item, i) => {\n    const p = plan[i];\n    const r = item.json;\n    const body = r && r.body !== undefined ? r.body : r;\n    const err = body && body.error;\n    const what = p.action === 'create table' ? `Created table \"${p.table}\" (${p.body.fields.length} columns)` : `Added column \"${p.field}\" to ${p.table}`;\n    if (body && body.id && !err) return what;\n    if (err && /DUPLICATE/i.test(JSON.stringify(err))) return `${what.replace(/^Created|^Added/, 'Skipped')}: already exists`;\n    const task = p.action === 'create table' ? `create table \"${p.table}\"` : `add column \"${p.field}\" to ${p.table}`;\n    return `Failed to ${task}. Airtable said: ${err ? JSON.stringify(err) : JSON.stringify(r).slice(0, 300)}`;\n  });\n}\n\nconst failed = results.some((r) => r.startsWith('Failed'));\nreturn [{\n  json: {\n    base: plan[0].baseName,\n    allOk: !failed && warnings.length === 0,\n    results,\n    warnings,\n    nextStep: failed || warnings.length\n      ? 'Fix the items in \"warnings\" (or send the Failed message to Claude), then run this workflow again.'\n      : 'Done. In each agent workflow, re-select Base and Table from the list on its Airtable box, then run it.',\n  },\n}];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Run setup": {
+      "main": [
+        [
+          {
+            "node": "List my bases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List my bases": {
+      "main": [
+        [
+          {
+            "node": "Find base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find base": {
+      "main": [
+        [
+          {
+            "node": "Read current tables",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read current tables": {
+      "main": [
+        [
+          {
+            "node": "Plan changes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Plan changes": {
+      "main": [
+        [
+          {
+            "node": "Anything to change?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything to change?": {
+      "main": [
+        [
+          {
+            "node": "Apply change",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply change": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

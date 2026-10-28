@@ -1,0 +1,373 @@
+{
+  "name": "I-2 Process Mapper",
+  "nodes": [
+    {
+      "id": "a1",
+      "name": "Walkthrough form",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "b7f1c1de-4e0a-4f55-9a57-1f3c1d2a9e01",
+      "parameters": {
+        "formTitle": "Process walkthrough",
+        "formDescription": "Paste the transcript of one process walkthrough. The Process Mapper turns it into a step-by-step map for the interviewee to confirm.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Client name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Process name",
+              "placeholder": "e.g. Invoice follow-up",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Person interviewed",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Their role"
+            },
+            {
+              "fieldLabel": "Interview date",
+              "fieldType": "date"
+            },
+            {
+              "fieldLabel": "Transcript",
+              "fieldType": "textarea",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "path": "process-mapper",
+          "appendAttribution": false
+        }
+      }
+    },
+    {
+      "id": "a2",
+      "name": "Build Claude request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Build Claude request\"\nconst f = $input.first().json;\n\nconst meta = {\n  client: (f['Client name'] || '').trim(),\n  process: (f['Process name'] || '').trim(),\n  interviewee: (f['Person interviewed'] || '').trim(),\n  role: (f['Their role'] || '').trim(),\n  interviewDate: f['Interview date'] || '',\n};\nconst transcript = (f['Transcript'] || '').trim();\n\nif (transcript.length < 200) {\n  return [{ json: { Error: 'The transcript is too short to map (under 200 characters). Paste the full walkthrough transcript and submit again.' } }];\n}\n\nconst system = `You are the Process Mapper for an AI implementation consultancy. You turn a recorded walkthrough of how someone does a task at work into an accurate, step-by-step process map.\n\nYour map will be sent back to the person interviewed so they can confirm it, and later used to decide what to automate. Accuracy matters more than completeness: a wrong step is worse than a missing one.\n\nRules:\n- Record only what the transcript says or clearly shows. Do not invent steps, tools, people or numbers.\n- Each step is one action by one person in one tool. Split compound actions (\"I copy it into the sheet and email Sarah\") into separate steps.\n- person: the role or name of whoever does the step. tool: the software or medium used (e.g. \"Gmail\", \"QuickBooks\", \"paper form\", \"phone call\"). If the transcript doesn't say, write \"unknown\" and add an open question.\n- judgment_needed is true when the person has to decide something that isn't a fixed rule (e.g. \"I check if it looks right\", \"depends on the customer\"). Explain the decision in judgment_notes; otherwise leave judgment_notes empty.\n- evidence: a short quote (under 25 words) from the transcript that supports the step.\n- frequency_per_week and minutes_per_run: use numbers only if stated or directly calculable from what was said (e.g. \"about 20 a day\" on a 5-day week = 100). Otherwise use null and add an open question. Use minutes_per_run for one full run of the process, not one step.\n- exceptions: what happens when things go wrong or differ from normal (\"if the invoice is missing a PO number...\").\n- pain_points: frustrations, delays or errors the person mentions, in their words where possible.\n- open_questions: specific questions to ask the person to fill gaps or resolve contradictions. Write them so they can be sent directly to that person.\n- Write in plain English. No consulting jargon.`;\n\nconst str = { type: 'string' };\nconst nullableNumber = { anyOf: [{ type: 'number' }, { type: 'null' }] };\nconst schema = {\n  type: 'object',\n  additionalProperties: false,\n  required: ['process_name', 'summary', 'owner', 'trigger', 'frequency_per_week', 'minutes_per_run', 'tools_used', 'steps', 'exceptions', 'pain_points', 'open_questions'],\n  properties: {\n    process_name: str,\n    summary: str,\n    owner: str,\n    trigger: str,\n    frequency_per_week: nullableNumber,\n    minutes_per_run: nullableNumber,\n    tools_used: { type: 'array', items: str },\n    steps: {\n      type: 'array',\n      items: {\n        type: 'object',\n        additionalProperties: false,\n        required: ['n', 'action', 'person', 'tool', 'input', 'output', 'judgment_needed', 'judgment_notes', 'evidence'],\n        properties: {\n          n: { type: 'integer' },\n          action: str, person: str, tool: str, input: str, output: str,\n          judgment_needed: { type: 'boolean' },\n          judgment_notes: str,\n          evidence: str,\n        },\n      },\n    },\n    exceptions: {\n      type: 'array',\n      items: {\n        type: 'object',\n        additionalProperties: false,\n        required: ['when', 'what_happens'],\n        properties: { when: str, what_happens: str },\n      },\n    },\n    pain_points: { type: 'array', items: str },\n    open_questions: { type: 'array', items: str },\n  },\n};\n\nconst userMessage = `<context>\nClient: ${meta.client}\nProcess: ${meta.process}\nPerson interviewed: ${meta.interviewee}${meta.role ? ` (${meta.role})` : ''}\n</context>\n\n<transcript>\n${transcript}\n</transcript>\n\nBuild the process map for \"${meta.process}\" from this walkthrough.`;\n\nconst request = {\n  model: 'claude-sonnet-5-5',\n  max_tokens: 16000,\n  fallbacks: 'default',\n  output_config: { effort: 'medium', format: { type: 'json_schema', schema } },\n  system,\n  messages: [{ role: 'user', content: userMessage }],\n};\n\nreturn [{ json: { request, meta } }];\n"
+      }
+    },
+    {
+      "id": "a3",
+      "name": "Transcript OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "no-error",
+              "leftValue": "={{ $json.Error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a4",
+      "name": "Claude: map the process",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "onError": "continueErrorOutput",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_ME",
+          "name": "Anthropic API key"
+        }
+      },
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "anthropic-version",
+              "value": "2026-10-21"
+            },
+            {
+              "name": "anthropic-beta",
+              "value": "server-side-fallback-2026-07-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}",
+        "options": {
+          "timeout": 300000
+        }
+      }
+    },
+    {
+      "id": "a5",
+      "name": "Parse and check",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        160
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Parse and check\"\nconst res = $input.first().json;\nconst meta = $('Build Claude request').first().json.meta;\n\nconst PRICE_PER_MTOK = { input: 2.0, output: 10.0 }; // Claude Sonnet 5.5, USD\n\nconst fail = (msg) => [{ json: { Error: msg } }];\n\nif (res.stop_reason === 'refusal') {\n  return fail('Claude declined to process this transcript. Check it for content unrelated to the business process and try again.');\n}\nif (res.stop_reason === 'max_tokens') {\n  return fail('The map was cut off because it was too long. Split the transcript into separate processes and submit each one.');\n}\nconst textBlock = (res.content || []).find((b) => b.type === 'text');\nif (!textBlock) {\n  return fail(`Claude returned no map (stop reason: ${res.stop_reason || 'unknown'}).`);\n}\nlet map;\ntry {\n  map = JSON.parse(textBlock.text);\n} catch (e) {\n  return fail('Claude returned a map that could not be read. Submit the form again.');\n}\n\nconst isUnknown = (v) => !v || /^\\s*(unknown|n\\/a|none|unclear)\\s*$/i.test(v);\nconst steps = map.steps || [];\nconst issues = [];\n\nconst missingPerson = steps.filter((s) => isUnknown(s.person)).map((s) => s.n);\nconst missingTool = steps.filter((s) => isUnknown(s.tool)).map((s) => s.n);\nif (steps.length === 0) issues.push('No steps were found in the transcript.');\nconst stepList = (ns) => (ns.length === 1 ? `Step ${ns[0]} has` : `Steps ${ns.join(', ')} have`);\nif (missingPerson.length) issues.push(`${stepList(missingPerson)} no person.`);\nif (missingTool.length) issues.push(`${stepList(missingTool)} no tool.`);\nif (map.frequency_per_week == null) issues.push('How often this runs per week is unknown.');\nif (map.minutes_per_run == null) issues.push('Minutes per run is unknown.');\nif (!(map.exceptions || []).length) issues.push('No exceptions were described. Ask what happens when something goes wrong.');\n\nconst hoursPerWeek =\n  map.frequency_per_week != null && map.minutes_per_run != null\n    ? Math.round(((map.frequency_per_week * map.minutes_per_run) / 60) * 10) / 10\n    : null;\n\nconst usage = res.usage || {};\nconst cost =\n  ((usage.input_tokens || 0) * PRICE_PER_MTOK.input + (usage.output_tokens || 0) * PRICE_PER_MTOK.output) / 1e6;\n\nconst lines = [];\nlines.push(`# ${map.process_name}`);\nlines.push('');\nlines.push(map.summary);\nlines.push('');\nlines.push(`Owner: ${map.owner}`);\nlines.push(`Starts when: ${map.trigger}`);\nlines.push(`Runs per week: ${map.frequency_per_week ?? 'unknown'} · Minutes per run: ${map.minutes_per_run ?? 'unknown'} · Hours per week: ${hoursPerWeek ?? 'unknown'}`);\nlines.push(`Tools: ${(map.tools_used || []).join(', ')}`);\nlines.push('');\nlines.push('## Steps');\nfor (const s of steps) {\n  lines.push(`${s.n}. ${s.action} (${s.person}, ${s.tool})`);\n  lines.push(`   In: ${s.input} → Out: ${s.output}`);\n  if (s.judgment_needed) lines.push(`   Judgment: ${s.judgment_notes}`);\n}\nif ((map.exceptions || []).length) {\n  lines.push('');\n  lines.push('## When things go differently');\n  for (const x of map.exceptions) lines.push(`- If ${x.when}: ${x.what_happens}`);\n}\nif ((map.pain_points || []).length) {\n  lines.push('');\n  lines.push('## Pain points');\n  for (const p of map.pain_points) lines.push(`- ${p}`);\n}\nif ((map.open_questions || []).length) {\n  lines.push('');\n  lines.push('## Questions for you');\n  for (const q of map.open_questions) lines.push(`- ${q}`);\n}\n\nreturn [{\n  json: {\n    'Client': meta.client,\n    'Process': map.process_name || meta.process,\n    'Interviewee': meta.interviewee,\n    'Interview date': meta.interviewDate || null,\n    'Owner': map.owner,\n    'Runs per week': map.frequency_per_week,\n    'Minutes per run': map.minutes_per_run,\n    'Hours per week': hoursPerWeek,\n    'Step count': steps.length,\n    'Judgment steps': steps.filter((s) => s.judgment_needed).length,\n    'Exception count': (map.exceptions || []).length,\n    'Checklist passed': issues.length === 0,\n    'Checklist issues': issues.join('\\n'),\n    'Open questions': (map.open_questions || []).map((q) => `- ${q}`).join('\\n'),\n    'Map': lines.join('\\n'),\n    'Map JSON': JSON.stringify(map, null, 2),\n    'Status': 'Awaiting confirmation',\n    'Model': res.model || 'claude-sonnet-5-5',\n    'AI cost (USD)': Math.round(cost * 10000) / 10000,\n  },\n}];\n"
+      }
+    },
+    {
+      "id": "a6",
+      "name": "Map OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        160
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "no-error",
+              "leftValue": "={{ $json.Error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a7",
+      "name": "Save to client file",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        80
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "mode": "id",
+          "value": "appREPLACE_ME"
+        },
+        "table": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Process Maps"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "typecast": true
+        }
+      }
+    },
+    {
+      "id": "a8",
+      "name": "Show result",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        80
+      ],
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "={{ $('Parse and check').first().json['Checklist passed'] ? 'Process map ready' : 'Process map ready: needs answers' }}",
+        "completionMessage": "={{ (() => { const r = $('Parse and check').first().json; return `${r['Process']}: ${r['Step count']} steps, ${r['Hours per week'] ?? 'unknown'} hours per week. Saved to the client file as \"Awaiting confirmation\". ` + (r['Checklist passed'] ? 'Checklist passed. Send the map to ' + r['Interviewee'] + ' to confirm.' : 'Still to resolve: ' + r['Checklist issues'].replace(/\\n/g, ' ')); })() }}"
+      }
+    },
+    {
+      "id": "a9",
+      "name": "Show error",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        1440,
+        420
+      ],
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "The map was not created",
+        "completionMessage": "={{ $json.Error || ($json.error && ($json.error.message || JSON.stringify($json.error))) || 'Unknown error. Check the workflow executions in n8n.' }}"
+      }
+    }
+  ],
+  "connections": {
+    "Walkthrough form": {
+      "main": [
+        [
+          {
+            "node": "Build Claude request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Claude request": {
+      "main": [
+        [
+          {
+            "node": "Transcript OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcript OK?": {
+      "main": [
+        [
+          {
+            "node": "Claude: map the process",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude: map the process": {
+      "main": [
+        [
+          {
+            "node": "Parse and check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and check": {
+      "main": [
+        [
+          {
+            "node": "Map OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map OK?": {
+      "main": [
+        [
+          {
+            "node": "Save to client file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Show error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to client file": {
+      "main": [
+        [
+          {
+            "node": "Show result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}

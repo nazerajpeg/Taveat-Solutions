@@ -1,0 +1,249 @@
+{
+  "name": "Check: Airtable connection",
+  "nodes": [
+    {
+      "id": "d1",
+      "name": "Run check",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        300
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "d2",
+      "name": "Who am I",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/meta/whoami"
+      }
+    },
+    {
+      "id": "d3",
+      "name": "List my bases",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
+        "method": "GET",
+        "url": "https://api.airtable.com/v0/meta/bases"
+      }
+    },
+    {
+      "id": "d4",
+      "name": "Find base",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Find base\" (Airtable setup)\nconst BASE_NAME = 'GaaS Client Files';\n\n// n8n versions differ: some return { statusCode, body }, others return the body itself.\nconst raw = $input.first().json;\nconst body = raw && raw.body !== undefined ? raw.body : raw;\nif (!body || !Array.isArray(body.bases)) {\n  const detail = body && body.error ? JSON.stringify(body.error) : JSON.stringify(raw).slice(0, 300);\n  throw new Error(`Airtable did not return a list of bases. Airtable said: ${detail}. Check that the Airtable credential's token has the schema.bases:read and schema.bases:write scopes and access to the \"${BASE_NAME}\" base.`);\n}\nconst matches = body.bases.filter((b) => b.name.trim().toLowerCase() === BASE_NAME.toLowerCase());\nif (!matches.length) {\n  const seen = body.bases.map((b) => `\"${b.name}\"`).join(', ') || 'none';\n  throw new Error(`No base called \"${BASE_NAME}\" was found. Bases this token can see: ${seen}. Create the base (or rename it) and give the token access to it.`);\n}\nif (matches.length > 1) {\n  throw new Error(`Found ${matches.length} bases called \"${BASE_NAME}\" (IDs: ${matches.map((b) => b.id).join(', ')}). Keep one: delete or rename the others in Airtable, then run this again. A base's ID is the part of its web address that starts with \"app\".`);\n}\nreturn [{ json: { baseId: matches[0].id, baseName: matches[0].name } }];\n"
+      }
+    },
+    {
+      "id": "d5",
+      "name": "Write test: 2 columns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('Find base').first().json.baseId + '/Process%20Maps' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"typecast\":true,\"fields\":{\"Client\":\"Diagnostic test\",\"Process\":\"Diagnostic small row\"}}"
+      }
+    },
+    {
+      "id": "d6",
+      "name": "Write test: all columns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "REPLACE_ME",
+          "name": "Airtable"
+        }
+      },
+      "onError": "continueRegularOutput",
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "airtableTokenApi",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        },
+        "method": "POST",
+        "url": "={{ 'https://api.airtable.com/v0/' + $('Find base').first().json.baseId + '/Process%20Maps' }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"typecast\":true,\"fields\":{\"Client\":\"Diagnostic test\",\"Process\":\"Diagnostic full row\",\"Interviewee\":\"Test\",\"Interview date\":null,\"Owner\":\"Test\",\"Runs per week\":5,\"Minutes per run\":45,\"Hours per week\":3.8,\"Step count\":2,\"Judgment steps\":1,\"Exception count\":0,\"Checklist passed\":false,\"Checklist issues\":\"Step 2 has no tool.\",\"Open questions\":\"- Which tool do you use?\",\"Map\":\"# Diagnostic\\n\\n1. Test step\",\"Map JSON\":\"{\\\"process_name\\\":\\\"Diagnostic\\\"}\",\"Status\":\"Awaiting confirmation\",\"Model\":\"claude-sonnet-5-5\",\"AI cost (USD)\":0.0123}}"
+      }
+    },
+    {
+      "id": "d7",
+      "name": "Diagnosis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ],
+      "parameters": {
+        "jsCode": "// n8n Code node: \"Diagnosis\" (Airtable diagnostic)\nconst read = (name) => {\n  const r = $(name).first().json || {};\n  const body = r.body !== undefined ? r.body : r;\n  const err = (body && body.error) || r.error || null;\n  return { body, err, ok: Boolean(body && body.id && !err) };\n};\nconst errText = (e) => (e ? (typeof e === 'string' ? e : e.type ? `${e.type}: ${e.message || ''}` : e.message || JSON.stringify(e)) : '');\n\nconst who = read('Who am I');\nconst base = $('Find base').first().json;\nconst small = read('Write test: 2 columns');\nconst full = read('Write test: all columns');\nconst scopes = (who.body && who.body.scopes) || [];\nconst needed = ['data.records:read', 'data.records:write', 'schema.bases:read', 'schema.bases:write'];\nconst missing = needed.filter((s) => !scopes.includes(s));\n\nlet diagnosis;\nif (who.err) {\n  diagnosis = `The credential's token was rejected (${errText(who.err)}). Paste a fresh token into the Airtable credential.`;\n} else if (missing.length) {\n  diagnosis = `This credential's token is missing: ${missing.join(', ')}. Either the scopes weren't saved on the token, or this credential holds a different token. Paste the token that has all four scopes into this credential.`;\n} else if (!small.ok) {\n  diagnosis = `The token has the right scopes but Airtable won't let it add rows to Process Maps (${errText(small.err)}). Check that your Airtable account is the owner or a creator of the \"${base.baseName}\" base, and that the token's Access list includes this exact base.`;\n} else if (!full.ok) {\n  diagnosis = `Permissions are fine: a 2-column row saved. A full row failed, so one column is the problem: ${errText(full.err)}. Send this message to Claude.`;\n} else {\n  diagnosis = 'Airtable accepts full rows from this credential. The Process Mapper\\'s \"Save to client file\" box must be using a different credential: open it and select this same credential.';\n}\n\nreturn [{\n  json: {\n    diagnosis,\n    tokenScopes: scopes.join(', ') || '(none returned)',\n    base: `${base.baseName} (${base.baseId})`,\n    write2Columns: small.ok ? 'Saved' : `Failed: ${errText(small.err)}`,\n    writeAllColumns: full.ok ? 'Saved' : `Failed: ${errText(full.err)}`,\n    cleanUp: 'Delete the rows with Client = \"Diagnostic test\" from Process Maps.',\n  },\n}];\n"
+      }
+    }
+  ],
+  "connections": {
+    "Run check": {
+      "main": [
+        [
+          {
+            "node": "Who am I",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Who am I": {
+      "main": [
+        [
+          {
+            "node": "List my bases",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List my bases": {
+      "main": [
+        [
+          {
+            "node": "Find base",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find base": {
+      "main": [
+        [
+          {
+            "node": "Write test: 2 columns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write test: 2 columns": {
+      "main": [
+        [
+          {
+            "node": "Write test: all columns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write test: all columns": {
+      "main": [
+        [
+          {
+            "node": "Diagnosis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "active": false,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  },
+  "tags": []
+}
