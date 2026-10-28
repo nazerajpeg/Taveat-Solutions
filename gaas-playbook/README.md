@@ -13,6 +13,7 @@ The method, tool rules and agents Taveat Solutions uses to deliver AI implementa
 | `n8n/opportunity-scorer.json` | Agent A-1 Opportunity Scorer: import into n8n |
 | `n8n/OPPORTUNITY_SCORER_SETUP.md` | How to set up the Opportunity Scorer |
 | `offers/sales-sheet.html` | One-page sales sheet: three packages, pricing, guarantee, audit offer |
+| `plan/taveat-90-day-plan.xlsx` | 90-day launch plan: weekly tasks, scoreboard and rules (opens in Excel or Google Sheets) |
 | `offers/PROFIT_LEAK_AUDIT.md` | How to deliver the $497 Profit Leak Audit: intake, call scripts, leak formulas, report template |
 | `n8n/airtable-setup.json` | One-time workflow that creates the Process Maps and Backlog tables in Airtable |
 | `airtable/*.csv` | Column templates, if you would rather create the tables by CSV import |
